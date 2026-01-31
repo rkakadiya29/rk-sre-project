@@ -1,0 +1,8 @@
+kopf-env
+operator/src/__pycache__
+__pycache__/
+*.pyc
+.DS_Store
+.env
+y/
+install_google_cloud_sdk.bash

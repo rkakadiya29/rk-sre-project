@@ -1,0 +1,43 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: productpage-pdb
+  namespace: bookinfo
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: productpage
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: reviews-pdb
+  namespace: bookinfo
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: reviews
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: details-pdb
+  namespace: bookinfo
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: details
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ratings-pdb
+  namespace: bookinfo
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: ratings

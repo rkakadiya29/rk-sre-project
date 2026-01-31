@@ -1,0 +1,15 @@
+kind: Deployment
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+  template:
+    spec:
+      priorityClassName: system-cluster-critical
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: node-refresh-operator
+              topologyKey: kubernetes.io/hostname

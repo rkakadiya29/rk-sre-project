@@ -1,0 +1,8 @@
+---
+apiVersion: stable.rk.ai/v1
+kind: NodeRefresh
+metadata:
+  name: trigger-my-first-refresh
+  namespace: default
+spec:
+  tier: worker
