@@ -6,3 +6,4 @@ __pycache__/
 .env
 y/
 install_google_cloud_sdk.bash
+operatorquestions.md

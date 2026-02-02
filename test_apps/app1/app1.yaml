@@ -62,4 +62,4 @@ spec:
   selector:
     matchLabels:
       app: simple-web
-  minAvailable: 2
+  minAvailable: 1

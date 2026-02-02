@@ -1,8 +1,19 @@
 ---
-apiVersion: stable.rk.ai/v1
+apiVersion: stable.rk.ai/v1alpha1
 kind: NodeRefresh
 metadata:
-  name: trigger-my-first-refresh
-  namespace: default
+  name: rk-node-refresh
 spec:
-  tier: worker
+  gkeConfig:
+    projectId: "project-c668633a-e9a8-4b7e-8a0"
+    zone: "us-central1-a"
+    clusterId: "k8s-cluster1"
+    nodePoolId: "default-pool"
+  targetNodeLabels:
+    tier: worker
+    "cloud.google.com/gke-nodepool": "default-pool"
+  # 5-minute interval for testing 
+  refreshSchedule: "*/5 * * * *" 
+  # Safety threshold
+  minHealthyPercent: 90
+  maxConcurrentMigrations: 1
