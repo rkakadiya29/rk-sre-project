@@ -84,10 +84,8 @@ def perform_safe_drain(v1, node_name, logger, timeout=600):
         if not app_pods:
             logger.info(f"Node {node_name} is now empty.")
             return True # Success!
-            
         logger.info(f"Waiting for {len(app_pods)} pods to finish terminating...")
         time.sleep(10)
-
     raise Exception(f"Node {node_name} failed to empty before timeout.")
 
 def check_cluster_health(v1, threshold, logger):
@@ -102,3 +100,35 @@ def check_cluster_health(v1, threshold, logger):
             ready_count += 1
     return (ready_count / len(active_pods))*100 >= threshold 
 
+def pre_drain_pod_health_check(v1, target_gen, logger, timeout=120):
+    # Ensures replacement nodes are Ready before we start draining.
+    start_time = time.time()
+    logger.info(f"Pre-drain check: Validating generation {target_gen}")
+
+    while time.time() - start_time < timeout:
+        nodes = v1.list_node(label_selector=f"rk.ai/generation={target_gen}").items   
+        # Check if they are all 'Ready'
+        node_ready = nodes and all(
+            any(c.type == 'Ready' and c.status == 'True' for c in n.status.conditions) 
+            for n in nodes
+        )
+        if node_ready:
+            all_pods = v1.list_pod_for_all_namespaces().items
+            critical_errors = []
+            for p in all_pods:
+                # We only care about pods that are supposed to be running
+                if p.status.phase == 'Failed':
+                    critical_errors.append(p.metadata.name)
+                if p.status.container_statuses:
+                    for s in p.status.container_statuses:
+                        if s.waiting and s.waiting.reason in ['ImagePullBackOff', 'CrashLoopBackOff', 'ErrImagePull']:
+                            critical_errors.append(f"{p.metadata.name} ({s.waiting.reason})")
+            if not critical_errors:
+                logger.info(f"Pre-drain check passed for {target_gen}")
+                return True
+            else:
+                logger.warning(f"Blocking errors detected: {critical_errors}. Waiting for stabilization...")
+        else:
+            logger.info(f"Waiting for system pods on nodes in {target_gen} to reach Ready state...")
+        time.sleep(20)
+    raise Exception(f"Pre-drain health check timed out for {target_gen}. Replacement capacity is not healthy.")

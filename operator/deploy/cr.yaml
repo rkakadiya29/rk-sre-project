@@ -2,7 +2,7 @@
 apiVersion: stable.rk.ai/v1alpha1
 kind: NodeRefresh
 metadata:
-  name: rk-node-refresh
+  name: rk-node-refresh-cycle
 spec:
   gkeConfig:
     projectId: "project-c668633a-e9a8-4b7e-8a0"
@@ -11,6 +11,7 @@ spec:
     nodePoolId: "default-pool"
   targetNodeLabels:
     tier: worker
+    # rk.ai/generation: gen-0
     "cloud.google.com/gke-nodepool": "default-pool"
   # 5-minute interval for testing 
   refreshSchedule: "*/5 * * * *" 

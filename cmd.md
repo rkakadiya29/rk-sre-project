@@ -3,7 +3,7 @@ kubectl get pods -A -o wide --sort-by=.spec.nodeName
 kubectl get pods -A --field-selector spec.nodeName=k8s-cluster1-worker1
 kubectl get pods -l tier=worker -o wide -n kube-system
 kubectl get pods -A -o wide | grep -E 'k8s-cluster1-worker'
-kubectl get nodes --show-labels | grep node-generation=gen2
+kubectl get nodes --show-labels | grep rk.ai/generation=gen-1
 
 kubectl delete pods -n kube-system -l app=kindnet
 
@@ -28,7 +28,6 @@ gcloud auth application-default login
 
 # running operator
 source kopf-env/bin/activate
-
 kubectl apply -f operator/deploy/crd.yaml
 kubectl apply -f operator/deploy/cr.yaml
 
@@ -42,14 +41,12 @@ kubectl create clusterrolebinding cluster-admin-binding \
 kubectl apply -f test_apps/app1/app1.yaml
 kubectl apply -k test_apps/app2/bookinfo-example/kustomize/
 kubectl patch crd noderefreshes.stable.rk.ai -p '{"metadata":{"finalizers":null}}' --type=merge
+kubectl patch noderefresh rk-node-refresh-cycle -p '{"metadata":{"finalizers":null}}' --type=merge
 
 kubectl patch namespace simple-web -p '{"spec": {"finalizers": []}}' --type=merge
 
-kubectl get noderefresh rk-node-refresh -w -o jsonpath='{.status}'
-kubectl get pods -A --field-selector spec.nodeName=gke-gke-k8s-cluster1-default-pool-c3dadcb4-xc19
-
-kubectl patch noderefresh rk-node-refresh-cycle -p '{"metadata":{"finalizers":null}}' --type=merge
-
+kubectl get noderefresh rk-node-refresh-cycle -w -o jsonpath='{.status}'
+kubectl get pods -A --field-selector spec.
 
 # gcloud commands
 gcloud container node-pools describe default-pool \
@@ -75,7 +72,7 @@ gcloud container node-pools create default-pool \
     --cluster k8s-cluster1 \
     --zone us-central1-a \
     --num-nodes 1 \
-    --machine-type e2-small \
+    --machine-type e2-medium \
     --disk-size 30 \
     --node-labels generation=v1,tier=worker \
     --scopes "https://www.googleapis.com/auth/cloud-platform"
@@ -84,3 +81,4 @@ gcloud container node-pools list \
     --cluster k8s-cluster1 \
     --zone us-central1-a \
     --project project-c668633a-e9a8-4b7e-8a0
+

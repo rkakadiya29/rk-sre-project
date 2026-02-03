@@ -12,10 +12,9 @@ import time
 from datetime import datetime, timezone
 from croniter import croniter
 from values import Un_evictable_namespaces, GROUP, VERSION, PLURAL
-from utils import perform_safe_drain, check_cluster_health
+from utils import perform_safe_drain, check_cluster_health, pre_drain_pod_health_check
 import google.api_core.exceptions
 
-# GROUP, VERSION, PLURAL = "stable.rk.ai", "v1alpha1", "noderefreshes"
 try:
     config.load_kube_config()
     print("Kubeconfig pre-loaded successfully for GKE.")
@@ -38,6 +37,12 @@ def operator_startup(spec, status, name, namespace, logger, patch, **kwargs):
 @kopf.timer(GROUP, VERSION, PLURAL, interval=120.0) 
 def reconcile_loop(spec, name, status, logger, patch, **kwargs): 
     v1 = k8s.CoreV1Api()
+    # ---  GKE CONFIG ---
+    gke_conf = spec.get('gkeConfig', {})
+    project = gke_conf.get('projectId')
+    zone = gke_conf.get('zone')
+    cluster_id = gke_conf.get('clusterId')
+    pool = gke_conf.get('nodePoolId')
     # --- Circuit Breaker Check ---
     # Stop if we've crashed too many times to prevent infinite surging
     fail_count = status.get('failureCount', 0)
@@ -67,45 +72,60 @@ def reconcile_loop(spec, name, status, logger, patch, **kwargs):
         return {'phase': 'Healthy', 'message': 'No refresh needed'}
     # We automate the 'target' by incrementing the last known successful generation
     current_gen = status.get('activeGeneration', 0)
-    target_gen = f"gen-{current_gen + 1}"
+    current_gen_label = f"gen-{current_gen}"
+    target_gen_label = f"gen-{current_gen + 1}"
 
     logger.info("Proceeding with node-pool refresh...")
-    # Update the timestamp so we don't run again for 120 seconds!
     patch.status['phase'] = 'Migrating'
 
     node_selector = spec.get('targetNodeLabels') or {}
     selector_str = ",".join([f"{k}={v}" for k, v in node_selector.items()])
     print(f"Selector string: {selector_str}")
     all_nodes = v1.list_node(label_selector=selector_str).items
-    # Identify 'Blue' nodes (those that don't have the NEXT generation label)
-    blue_nodes = [n for n in all_nodes if n.metadata.labels.get('rk.ai/generation') != target_gen]
+    # if nodes have NO generation label yet 
+    new_nodes = [n for n in all_nodes if 'rk.ai/generation' not in n.metadata.labels]
+    for n in new_nodes:
+        new_node_name = n.metadata.name
+        body = {
+            "metadata": {
+                "labels": {
+                    "rk.ai/generation": current_gen_label
+                }
+            }
+        }
+        logger.info(f"Patched new node {new_node_name} with {current_gen_label}")
+        v1.patch_node(new_node_name, body)
     baseline_count = len(all_nodes)
-
+    # Identify 'Blue' nodes (those that don't have the NEXT generation label)
+    blue_nodes = [n for n in all_nodes if n.metadata.labels.get('rk.ai/generation') != target_gen_label]
+    
     #--- COMPLETION CHECK ---
     if not blue_nodes:
-        logger.info(f"All nodes successfully reached {target_gen}")
-        patch.status['activeGeneration'] = current_gen + 1
-        patch.status['lastRefreshTime'] = now.isoformat()
-        patch.status['phase'] = 'Completed'
-        patch.status['failureCount'] = 0
-        patch.status['message'] = f"Successfully rotated nodes to {target_gen}"
-        patch.status['lastError'] = None 
-        return f"Full Migration Done: {target_gen}"
+        logger.info(f"All nodes successfully reached {target_gen_label}")
+        patch.status.update({'activeGeneration': current_gen + 1,
+        'lastRefreshTime': now.isoformat(),
+        'phase': 'Completed',
+        'failureCount': 0,
+        'message' : f"Successfully rotated nodes to {target_gen_label}",
+        'lastError': None })
+        return f"Full Migration Done: {target_gen_label}"
 
-    # ---  SINGLE NODE PROCESS WITH ROLLBACK ---
     target_node_name = blue_nodes[0].metadata.name
-    gke_conf = spec.get('gkeConfig', {})
-    project = gke_conf.get('projectId')
-    zone = gke_conf.get('zone')
-    cluster_id = gke_conf.get('clusterId')
-    pool = gke_conf.get('nodePoolId')
+    # check if the node isnt marked as unschedulable, if so, kill it (node-refresh pod itself could have drained it)
+    # if v1.read_node(target_node_name).spec.unschedulable:
+    #     if not check_cluster_health(v1, spec.get('minHealthyPercent', 90), logger):
+    #         raise kopf.TemporaryError("Cluster unhealthy. Backing off.", delay=120)
+    #     logger.info(f"Node {target_node_name} is marked as unschedulable. Killing it.")
+    #     v1.delete_node(target_node_name)
+    #     scale_gke_nodepool(project, zone, cluster_id, pool, baseline_count, logger)
+    #     return 
 
     try:
         # Pre-flight Health Check
         if not check_cluster_health(v1, spec.get('minHealthyPercent', 90), logger):
             raise kopf.TemporaryError("Cluster unhealthy. Backing off.", delay=120)
         patch.status['phase'] = 'Migrating'
-        # SURGE (Add node)
+        # SURGE 
         logger.info(f"Surge: Adding replacement for {target_node_name}")
         try:
             scale_gke_nodepool(project, zone, cluster_id, pool, baseline_count + 1, logger)
@@ -114,6 +134,10 @@ def reconcile_loop(spec, name, status, logger, patch, **kwargs):
                 logger.error("SRE ALERT: Cloud quota exceeded.")
                 raise kopf.TemporaryError("Cloud Quota Exceeded", delay=600)
             raise
+
+        # --- VALIDATE POD HEALTH ON NEW NODES BEFORE CONTINUING ---
+        pre_drain_pod_health_check(v1, target_gen_label, logger)
+
         # --- DRAIN (HONOR PDBs) ---
         logger.info(f"Node validated. Draining {target_node_name}...")
         drain_successful = perform_safe_drain(v1, target_node_name, logger)
@@ -121,12 +145,11 @@ def reconcile_loop(spec, name, status, logger, patch, **kwargs):
             # EXPLICIT DELETE (DECOMMISSION)
             logger.info(f"Explicitly deleting K8s node object: {target_node_name}")
             v1.delete_node(target_node_name)
-        
             # RESIZE
             scale_gke_nodepool(project, zone, cluster_id, pool, baseline_count, logger)
             patch.status['phase'] = 'Completed'
 
-        # Post-operation check: Ensure cluster is still healthy
+        # Post-operation check: Ensure cluster is still healthy CHECK PODS HEALTH AND NOT CLUSTER HEALTH
         if not check_cluster_health(v1, spec.get('minHealthyPercent', 90), logger):
             raise kopf.TemporaryError("Post-op health check failed.", delay=60)
         # Reset failure on success
@@ -134,7 +157,6 @@ def reconcile_loop(spec, name, status, logger, patch, **kwargs):
 
     except Exception as e:
         logger.error(f"MIGRATION FAILED for {target_node_name}: {e}")
-        
         # ROLLBACK 
         # Restore Capacity: Uncordon the Blue node immediately so it can take traffic
         try:
@@ -152,11 +174,6 @@ def reconcile_loop(spec, name, status, logger, patch, **kwargs):
         patch.status['phase'] = 'Failing-Retrying'
         patch.status['lastError'] = str(e)
         raise kopf.TemporaryError(f"Retry {fail_count+1}/3: {e}", delay=300)
-
-# """Helper to update the Status subresource"""
-# def update_status(custom_api, name, status_update):
-#     body = {"status": status_update}
-#     custom_api.patch_namespaced_custom_object(GROUP, VERSION, PLURAL, name, body)
 
 
 

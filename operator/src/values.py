@@ -5,4 +5,5 @@ GROUP = "stable.rk.ai"
 VERSION = "v1alpha1"
 PLURAL = "noderefreshes"
 ZONE = "us-central1-a"
+BATCH_SIZE = 1
 MAX_SURGE_COUNT = 2
