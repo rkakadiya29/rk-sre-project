@@ -81,4 +81,6 @@ gcloud container node-pools list \
     --cluster k8s-cluster1 \
     --zone us-central1-a \
     --project project-c668633a-e9a8-4b7e-8a0
+gcloud container delete cluster k8s-cluster1 \
+    --zone=us-central1-a 
 
