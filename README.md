@@ -5,8 +5,8 @@ This is a Python-based Kubernetes Operator that performs automated node refresh 
 ## Deployement instructions for Demo
 1. You need Python 3.10 and above to use kopf. Install the necessary libraries:
     ```bash
-    pip3 install kopf kubernetes pendulum
-    pip3 install pykube-ng (client lib for k8s)
+    pip3 install kopf kubernetes pendulum 
+    pip3 install pykube-ng 
     pip3 install kubecrd
     ```
 2. Create GCP account, a GKE cluster and add node-pool with atleast one node.
@@ -22,7 +22,7 @@ ex: kubectl apply -f test_apps/app1/app1.yaml
 6. Run the operator
    kopf run operator/src/operator.py --verbose 
 
-## Program Logic Flow (The "Refresher" Algorithm)
+## Program Logic Flow 
 The program follows a Surge-and-Drain pattern to ensure the cluster never loses capacity during the 3-day refresh cycle.
 ### Phase I: Pre-Flight Validation
 Wake Up: The operator triggers every 120 seconds via a kopf.timer.
